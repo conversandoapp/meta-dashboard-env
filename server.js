@@ -8,7 +8,14 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
+
+// Servir archivos estáticos desde la carpeta 'public'
 app.use(express.static('public'));
+
+// Ruta principal - servir index.html
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/public/index.html');
+});
 
 // Endpoint para obtener datos de Meta Ads
 app.get('/api/meta-ads', async (req, res) => {
