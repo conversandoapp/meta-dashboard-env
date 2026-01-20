@@ -31,8 +31,104 @@ app.get('/api/meta-ads', async (req, res) => {
       });
     }
 
-    // Construir la URL de la API de Meta
-    const fields = 'name,effective_status,adcreatives{image_url},insights{reach,impressions,clicks,spend,cpc,ctr}';
+    // Configurar rango de fechas - últimos 90 días para obtener más datos
+    const datePreset = req.query.date_preset || 'last_90d';
+    
+    // Campos a solicitar de la API
+    // IMPORTANTE: Usamos date_preset para especificar el rango de fechas de los insights
+    const fields = `name,effective_status,status,adcreatives{image_url,title,body},insights.date_preset(${datePreset}){reach,impressions,clicks,spend,cpc,ctr,frequency,cost_per_unique_click}`;
+    
+    const apiUrl = `https://graph.facebook.com/v18.0/act_${adAccountId}/ads?fields=${fields}&access_token=${accessToken}&limit=500`;
+
+    console.log('🔍 Solicitando datos a Meta API...');
+    console.log('📅 Rango de fechas:', datePreset);
+    
+    const response = await fetch(apiUrl);
+    const data = await response.json();
+
+    if (data.error) {
+      console.error('❌ Error de Meta API:', data.error);
+      return res.status(400).json({
+        error: data.error.message,
+        type: data.error.type,
+        code: data.error.code,
+        message: 'Error al obtener datos de Meta. Verifica tu token y permisos.'
+      });
+    }
+
+    console.log(`📊 Anuncios encontrados: ${data.data?.length || 0}`);
+
+    // Procesar los datos
+    const processedAds = (data.data || []).map(ad => {
+      const insights = ad.insights?.data?.[0] || {};
+      const creative = ad.adcreatives?.data?.[0] || {};
+
+      // Debug: si no hay insights, mostrar en logs
+      if (!ad.insights || !ad.insights.data || ad.insights.data.length === 0) {
+        console.log(`⚠️ Anuncio sin insights: ${ad.name} (${ad.effective_status})`);
+      }
+
+      return {
+        ad_name: ad.name || 'Sin nombre',
+        effective_status: ad.effective_status,
+        status: ad.status,
+        image_url: creative.image_url || null,
+        title: creative.title || null,
+        body: creative.body || null,
+        reach: insights.reach || 0,
+        impressions: insights.impressions || 0,
+        clicks: insights.clicks || 0,
+        spend: insights.spend || 0,
+        cpc: insights.cpc || 0,
+        ctr: insights.ctr || 0,
+        frequency: insights.frequency || 0,
+        cost_per_unique_click: insights.cost_per_unique_click || 0
+      };
+    });
+
+    // Estadísticas de insights
+    const adsWithInsights = processedAds.filter(ad => ad.impressions > 0 || ad.spend > 0);
+    const adsWithoutInsights = processedAds.filter(ad => ad.impressions === 0 && ad.spend === 0);
+
+    console.log(`✅ Anuncios con datos: ${adsWithInsights.length}`);
+    console.log(`⚠️ Anuncios sin datos: ${adsWithoutInsights.length}`);
+
+    res.json({
+      success: true,
+      data: processedAds,
+      total: processedAds.length,
+      stats: {
+        with_data: adsWithInsights.length,
+        without_data: adsWithoutInsights.length,
+        date_range: datePreset
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error al obtener datos de Meta:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      message: error.message
+    });
+  }
+});
+
+// Endpoint alternativo con rango de fechas personalizado
+app.get('/api/meta-ads/custom-range', async (req, res) => {
+  try {
+    const accessToken = process.env.META_ACCESS_TOKEN;
+    const adAccountId = process.env.META_AD_ACCOUNT_ID;
+    
+    const { since, until } = req.query;
+
+    if (!since || !until) {
+      return res.status(400).json({
+        error: 'Parámetros faltantes',
+        message: 'Debes proporcionar "since" y "until" en formato YYYY-MM-DD'
+      });
+    }
+
+    const fields = `name,effective_status,adcreatives{image_url},insights.time_range({'since':'${since}','until':'${until}'}){reach,impressions,clicks,spend,cpc,ctr}`;
     const apiUrl = `https://graph.facebook.com/v18.0/act_${adAccountId}/ads?fields=${fields}&access_token=${accessToken}`;
 
     const response = await fetch(apiUrl);
@@ -41,12 +137,10 @@ app.get('/api/meta-ads', async (req, res) => {
     if (data.error) {
       return res.status(400).json({
         error: data.error.message,
-        type: data.error.type,
-        code: data.error.code
+        type: data.error.type
       });
     }
 
-    // Procesar los datos
     const processedAds = (data.data || []).map(ad => {
       const insights = ad.insights?.data?.[0] || {};
       const creative = ad.adcreatives?.data?.[0] || {};
@@ -67,11 +161,12 @@ app.get('/api/meta-ads', async (req, res) => {
     res.json({
       success: true,
       data: processedAds,
-      total: processedAds.length
+      total: processedAds.length,
+      date_range: { since, until }
     });
 
   } catch (error) {
-    console.error('Error al obtener datos de Meta:', error);
+    console.error('Error:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
       message: error.message
@@ -92,4 +187,5 @@ app.listen(PORT, () => {
   console.log(`✅ Servidor corriendo en puerto ${PORT}`);
   console.log(`🔑 META_ACCESS_TOKEN configurado: ${!!process.env.META_ACCESS_TOKEN}`);
   console.log(`🔑 META_AD_ACCOUNT_ID configurado: ${!!process.env.META_AD_ACCOUNT_ID}`);
+  console.log(`📅 Rango de fechas por defecto: últimos 90 días`);
 });
