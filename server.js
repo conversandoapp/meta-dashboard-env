@@ -31,17 +31,27 @@ app.get('/api/meta-ads', async (req, res) => {
       });
     }
 
-    // Configurar rango de fechas - últimos 90 días para obtener más datos
-    const datePreset = req.query.date_preset || 'last_90d';
+    // Configurar rango de fechas - últimos 36 meses (3 años)
+    const today = new Date();
+    const thirtyMonthsAgo = new Date();
+    thirtyMonthsAgo.setMonth(today.getMonth() - 36);
+    
+    // Formatear fechas en YYYY-MM-DD
+    const sinceDate = thirtyMonthsAgo.toISOString().split('T')[0];
+    const untilDate = today.toISOString().split('T')[0];
+    
+    console.log('📅 Rango de fechas configurado:');
+    console.log('   Desde:', sinceDate);
+    console.log('   Hasta:', untilDate);
     
     // Campos a solicitar de la API
-    // IMPORTANTE: Usamos date_preset para especificar el rango de fechas de los insights
-    const fields = `name,effective_status,status,adcreatives{image_url,title,body},insights.date_preset(${datePreset}){reach,impressions,clicks,spend,cpc,ctr,frequency,cost_per_unique_click}`;
+    // Usamos time_range para especificar el rango exacto de fechas
+    const fields = `name,effective_status,status,adcreatives{image_url,title,body},insights.time_range({'since':'${sinceDate}','until':'${untilDate}'}){reach,impressions,clicks,spend,cpc,ctr,frequency,cost_per_unique_click}`;
     
     const apiUrl = `https://graph.facebook.com/v18.0/act_${adAccountId}/ads?fields=${fields}&access_token=${accessToken}&limit=500`;
 
     console.log('🔍 Solicitando datos a Meta API...');
-    console.log('📅 Rango de fechas:', datePreset);
+    console.log('📊 Período: Últimos 36 meses');
     
     const response = await fetch(apiUrl);
     const data = await response.json();
@@ -100,7 +110,11 @@ app.get('/api/meta-ads', async (req, res) => {
       stats: {
         with_data: adsWithInsights.length,
         without_data: adsWithoutInsights.length,
-        date_range: datePreset
+        date_range: {
+          since: sinceDate,
+          until: untilDate,
+          period: 'Últimos 36 meses'
+        }
       }
     });
 
@@ -187,5 +201,5 @@ app.listen(PORT, () => {
   console.log(`✅ Servidor corriendo en puerto ${PORT}`);
   console.log(`🔑 META_ACCESS_TOKEN configurado: ${!!process.env.META_ACCESS_TOKEN}`);
   console.log(`🔑 META_AD_ACCOUNT_ID configurado: ${!!process.env.META_AD_ACCOUNT_ID}`);
-  console.log(`📅 Rango de fechas por defecto: últimos 90 días`);
+  console.log(`📅 Rango de fechas: Últimos 36 meses (3 años)`);
 });
